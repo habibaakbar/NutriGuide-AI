@@ -25,9 +25,16 @@ st.set_page_config(
 
 load_dotenv()
 
-API_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv(
-    "GEMINI_API_KEY"
-)
+try:
+    API_KEY = st.secrets.get("GEMINI_API_KEY")
+except Exception:
+    API_KEY = None
+
+if not API_KEY:
+    API_KEY = os.getenv("GEMINI_API_KEY")
+
+if API_KEY:
+    API_KEY = API_KEY.strip()
 
 if API_KEY:
     API_KEY = API_KEY.strip()
