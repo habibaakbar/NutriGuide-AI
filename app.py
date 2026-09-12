@@ -1,5 +1,6 @@
 import os
 import json
+import time
 from io import BytesIO
 from datetime import datetime
 from xml.sax.saxutils import escape
@@ -52,22 +53,14 @@ if not API_KEY:
 if API_KEY:
     API_KEY = API_KEY.strip()
 
-
-# ============================================================
-# API CONFIGURATION
-# ============================================================
-
 if not API_KEY:
     st.error("🔑 Groq API key is missing.")
-
     st.info(
         "For Streamlit Cloud, add GROQ_API_KEY under "
-        "Settings → Secrets. For local development, "
-        "add it to your .env file."
+        "Settings → Secrets. For local development, add it "
+        "to your .env file."
     )
-
     st.stop()
-
 
 client = Groq(api_key=API_KEY)
 
@@ -78,23 +71,20 @@ MODEL_NAME = "llama3-8b-8192"
 # SESSION STATE
 # ============================================================
 
-if "page" not in st.session_state:
-    st.session_state.page = "home"
+DEFAULT_STATE = {
+    "page": "home",
+    "user_data": {},
+    "assessment": {},
+    "safety_result": {},
+    "guidance": {},
+    "workflow_context": {},
+}
 
-if "user_data" not in st.session_state:
-    st.session_state.user_data = {}
+for key, value in DEFAULT_STATE.items():
 
-if "assessment" not in st.session_state:
-    st.session_state.assessment = {}
+    if key not in st.session_state:
 
-if "safety_result" not in st.session_state:
-    st.session_state.safety_result = {}
-
-if "guidance" not in st.session_state:
-    st.session_state.guidance = {}
-
-if "workflow_context" not in st.session_state:
-    st.session_state.workflow_context = {}
+        st.session_state[key] = value
 
 
 # ============================================================
@@ -104,94 +94,105 @@ if "workflow_context" not in st.session_state:
 st.markdown(
     """
     <style>
+        /* Smooth fade-in for the whole app */
+        .block-container {
+            max-width: 1150px;
+            padding-top: 2rem;
+            padding-bottom: 3rem;
+            animation: fadeIn 0.8s ease-in-out;
+        }
 
-    .main {
-        background-color: #f8fafc;
-    }
+        @keyframes fadeIn {
+            0% { opacity: 0; transform: translateY(10px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
 
-    .block-container {
-        padding-top: 2rem;
-        padding-bottom: 3rem;
-        max-width: 1200px;
-    }
+        /* Gradient Main Title */
+        h1 {
+            font-weight: 800;
+            letter-spacing: -1px;
+            background: -webkit-linear-gradient(45deg, #2e8b57, #3cb371);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
 
-    .hero-title {
-        font-size: 3.2rem;
-        font-weight: 800;
-        line-height: 1.1;
-        margin-bottom: 1rem;
-    }
+        h2, h3 {
+            font-weight: 700;
+            color: #2c3e50;
+        }
 
-    .hero-text {
-        font-size: 1.15rem;
-        line-height: 1.7;
-        color: #475569;
-        margin-bottom: 1.5rem;
-    }
+        /* Modernize Metrics (Quick Overview) */
+        div[data-testid="stMetric"] {
+            border: none;
+            padding: 20px;
+            border-radius: 20px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            transition: transform 0.3s ease;
+        }
+        div[data-testid="stMetric"]:hover {
+            transform: translateY(-5px);
+        }
 
-    .section-title {
-        font-size: 2rem;
-        font-weight: 750;
-        margin-top: 2rem;
-        margin-bottom: 1rem;
-    }
+        /* Styling Inputs & Buttons */
+        .stButton > button {
+            border-radius: 30px;
+            min-height: 50px;
+            font-weight: 700;
+            font-size: 1.1rem;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 14px rgba(46, 139, 87, 0.4);
+        }
+        .stButton > button:hover {
+            transform: scale(1.02);
+            box-shadow: 0 6px 20px rgba(46, 139, 87, 0.6);
+        }
 
-    .card {
-        background: white;
-        padding: 1.5rem;
-        border-radius: 16px;
-        border: 1px solid #e2e8f0;
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.04);
-        height: 100%;
-    }
+        textarea, input, div[data-baseweb="select"] > div {
+            border-radius: 15px !important;
+            border: 1px solid #e0e0e0 !important;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.02) !important;
+        }
 
-    .card h3 {
-        margin-top: 0;
-    }
+        /* Card Layouts with Hover Animations */
+        .feature-card, .step-card, .summary-card {
+            padding: 1.5rem;
+            border: none;
+            border-radius: 20px;
+            background: #ffffff;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+            transition: all 0.3s ease;
+            margin-bottom: 1rem;
+        }
+        
+        .feature-card:hover, .step-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 15px 35px rgba(0,0,0,0.12);
+        }
 
-    .workflow-card {
-        background: white;
-        padding: 1.3rem;
-        border-radius: 14px;
-        border: 1px solid #e2e8f0;
-        min-height: 180px;
-    }
+        .meal-card {
+            padding: 1.2rem;
+            margin-bottom: 1rem;
+            border-left: 5px solid #3cb371;
+            border-radius: 12px;
+            background: #f8fcf9;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.03);
+            transition: all 0.2s ease;
+        }
+        .meal-card:hover {
+            background: #eff9f2;
+            transform: translateX(5px);
+        }
 
-    .result-card {
-        background: white;
-        padding: 1.5rem;
-        border-radius: 16px;
-        border: 1px solid #e2e8f0;
-        margin-bottom: 1rem;
-    }
-
-    .status-safe {
-        padding: 1rem;
-        border-radius: 12px;
-        background: #ecfdf5;
-        border: 1px solid #a7f3d0;
-    }
-
-    .status-warning {
-        padding: 1rem;
-        border-radius: 12px;
-        background: #fffbeb;
-        border: 1px solid #fde68a;
-    }
-
-    .small-text {
-        color: #64748b;
-        font-size: 0.9rem;
-    }
-
-    .footer {
-        text-align: center;
-        color: #64748b;
-        padding: 2rem 0 1rem 0;
-        margin-top: 3rem;
-        border-top: 1px solid #e2e8f0;
-    }
-
+        /* Footer */
+        .app-footer {
+            text-align: center;
+            padding: 2rem 0;
+            color: #888;
+            font-size: 0.9rem;
+            border-top: 1px solid #eee;
+            margin-top: 3rem;
+        }
     </style>
     """,
     unsafe_allow_html=True,
@@ -199,228 +200,154 @@ st.markdown(
 
 
 # ============================================================
-# LOTTIE LOADER
+# HELPER FUNCTIONS
 # ============================================================
 
-@st.cache_data
 def load_lottieurl(url: str):
-    """
-    Safely load a Lottie animation from a URL.
-    """
-
-    if not url:
+    """Load a lottie animation from a URL."""
+    r = requests.get(url)
+    if r.status_code != 200:
         return None
+    return r.json()
 
-    if not url.startswith(("http://", "https://")):
-        return None
-
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-
-        return response.json()
-
-    except (requests.RequestException, ValueError):
-        return None
-
-
-# ============================================================
-# JSON CLEANER
-# ============================================================
 
 def clean_json_response(text):
-    """
-    Clean AI response and convert it into JSON.
-    """
-
+    """Clean AI output and convert it into a Python dictionary."""
     if not text:
-        return {}
+        raise RuntimeError("INVALID_JSON")
 
     text = text.strip()
 
-    if text.startswith("```json"):
-        text = text[7:]
-
-    elif text.startswith("```"):
-        text = text[3:]
-
-    if text.endswith("```"):
-        text = text[:-3]
-
-    text = text.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
 
     try:
-        return json.loads(text)
-
+        result = json.loads(text)
+        if not isinstance(result, dict):
+            raise RuntimeError("INVALID_JSON")
+        return result
     except json.JSONDecodeError:
-        start = text.find("{")
-        end = text.rfind("}")
+        pass
 
-        if start != -1 and end != -1 and end > start:
-            try:
-                return json.loads(text[start:end + 1])
-            except json.JSONDecodeError:
-                return {}
+    start = text.find("{")
+    end = text.rfind("}")
 
-    return {}
+    if start != -1 and end != -1 and end > start:
+        json_text = text[start:end + 1]
+        try:
+            result = json.loads(json_text)
+            if not isinstance(result, dict):
+                raise RuntimeError("INVALID_JSON")
+            return result
+        except json.JSONDecodeError as error:
+            raise RuntimeError("INVALID_JSON") from error
+
+    raise RuntimeError("INVALID_JSON")
 
 
-# ============================================================
-# AI RESPONSE GENERATOR
-# ============================================================
-
-def generate_ai_response(prompt, temperature=0.3):
-    """
-    Send a prompt to Groq and return the AI response.
-    """
-
-    try:
-
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are NutriGuide AI, a safe educational "
-                        "nutrition guidance assistant. "
-                        "Provide general educational information only. "
-                        "Do not diagnose medical conditions. "
-                        "Do not prescribe treatment. "
-                        "Do not provide restrictive eating plans, "
-                        "calorie targets, or weight-loss instructions. "
-                        "Be especially careful with young users."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                },
-            ],
-            temperature=temperature,
-            max_tokens=1800,
-        )
-
-        return response.choices[0].message.content
-
-    except Exception as e:
-
-        error_message = str(e).lower()
-
-        if "rate" in error_message or "quota" in error_message:
-            st.error(
-                "⚠️ The AI service has reached its usage limit. "
-                "Please try again later."
+def generate_ai_response(prompt, retries=3):
+    """Generate Groq response with safe error handling."""
+    for attempt in range(retries):
+        try:
+            response = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    }
+                ],
             )
 
-        elif "api" in error_message or "authentication" in error_message:
-            st.error(
-                "⚠️ There is a problem with the AI API configuration."
-            )
+            content = response.choices[0].message.content
 
-        else:
-            st.error(
-                "⚠️ Something went wrong while generating the AI response."
-            )
+            if not content:
+                raise RuntimeError("Groq returned an empty response.")
 
-        return ""
+            return content
+
+        except Exception as error:
+            error_message = str(error).lower()
+
+            if (
+                "401" in error_message
+                or "unauthorized" in error_message
+                or "api key" in error_message
+            ):
+                raise RuntimeError("INVALID_API_KEY") from error
+
+            if (
+                "429" in error_message
+                or "rate_limit" in error_message
+                or "quota" in error_message
+            ):
+                raise RuntimeError("API_QUOTA_EXCEEDED") from error
+
+            if "503" in error_message or "unavailable" in error_message:
+                if attempt < retries - 1:
+                    time.sleep(3)
+                    continue
+                raise RuntimeError("GROQ_TEMPORARILY_UNAVAILABLE") from error
+
+            # Passes the exact error message up to the UI
+            raise RuntimeError(f"RAW_ERROR: {error_message}") from error
+
+    raise RuntimeError("RAW_ERROR: Max retries exceeded")
 
 
-# ============================================================
-# DISPLAY LIST ITEMS
-# ============================================================
-
-def display_list_items(items):
-
+def display_list_items(items, empty_message="No information available.", card_style=False):
+    """Display a list safely in the Streamlit UI."""
     if not items:
-        st.write("No information available.")
-
+        st.write(empty_message)
         return
 
-    if isinstance(items, str):
-
-        st.write(items)
-
-        return
+    if not isinstance(items, list):
+        items = [items]
 
     for item in items:
-
-        if isinstance(item, dict):
-
-            title = item.get("title", "")
-            description = item.get("description", "")
-
-            if title:
-                st.markdown(f"**{title}**")
-
-            if description:
-                st.write(description)
-
+        if card_style:
+            st.markdown(
+                f"""
+                <div class="meal-card">
+                    🍽️ {item}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
         else:
+            st.write(f"• {item}")
 
-            st.markdown(f"• {item}")
 
+def reset_app():
+    """Reset the application for a new assessment."""
+    for key, value in DEFAULT_STATE.items():
+        st.session_state[key] = value
 
-# ============================================================
-# BOOLEAN HELPER
-# ============================================================
 
 def get_bool(value):
-
+    """Safely convert common AI boolean values to bool."""
     if isinstance(value, bool):
         return value
-
     if isinstance(value, str):
-
-        return value.lower() in [
-            "yes",
-            "true",
-            "1",
-            "y",
-        ]
-
+        return value.strip().lower() in {"true", "yes", "1"}
     return bool(value)
 
 
-# ============================================================
-# PDF TEXT HELPER
-# ============================================================
-
 def pdf_text(value):
-
+    """Safely convert text for ReportLab Paragraphs."""
     if value is None:
         return ""
-
-    if isinstance(value, list):
-
-        value = "\n".join(str(x) for x in value)
-
-    elif isinstance(value, dict):
-
-        value = json.dumps(
-            value,
-            indent=2,
-            ensure_ascii=False,
-        )
-
-    value = str(value)
-
-    return escape(value).replace("\n", "<br/>")
+    return escape(str(value)).replace("\n", "<br/>")
 
 
-# ============================================================
-# CREATE PDF REPORT
-# ============================================================
-
-def create_pdf_report(
-    user_data,
-    assessment,
-    safety_result,
-    guidance,
-):
-
+def create_pdf_report(user_data, assessment, safety_result, guidance):
+    """Create a downloadable PDF nutrition report."""
     buffer = BytesIO()
-
     document = SimpleDocTemplate(
         buffer,
         pagesize=A4,
@@ -431,343 +358,149 @@ def create_pdf_report(
     )
 
     styles = getSampleStyleSheet()
-
     title_style = ParagraphStyle(
-        "CustomTitle",
-        parent=styles["Title"],
-        alignment=TA_CENTER,
-        fontSize=22,
-        spaceAfter=15,
+        "ReportTitle", parent=styles["Title"], alignment=TA_CENTER, fontSize=20, spaceAfter=20
     )
-
     heading_style = ParagraphStyle(
-        "Heading",
-        parent=styles["Heading2"],
-        fontSize=14,
-        spaceBefore=12,
-        spaceAfter=8,
+        "ReportHeading", parent=styles["Heading2"], fontSize=14, spaceBefore=12, spaceAfter=8
     )
-
     body_style = ParagraphStyle(
-        "Body",
-        parent=styles["BodyText"],
-        fontSize=10,
-        leading=15,
-        spaceAfter=6,
+        "ReportBody", parent=styles["BodyText"], fontSize=10, leading=14, spaceAfter=6
+    )
+    small_style = ParagraphStyle(
+        "ReportSmall", parent=styles["BodyText"], fontSize=9, leading=12, spaceAfter=5
     )
 
     story = []
 
-    story.append(
-        Paragraph(
-            "NutriGuide AI",
-            title_style,
-        )
-    )
-
-    story.append(
-        Paragraph(
-            "Nutrition Guidance Report",
-            styles["Heading2"],
-        )
-    )
-
-    story.append(
-        Paragraph(
-            f"Generated: {datetime.now().strftime('%d %B %Y, %I:%M %p')}",
-            body_style,
-        )
-    )
-
+    story.append(Paragraph("NutriGuide AI - Nutrition Report", title_style))
+    story.append(Paragraph("Generated: " + datetime.now().strftime("%d %B %Y, %H:%M"), small_style))
     story.append(Spacer(1, 10))
 
-    # --------------------------------------------------------
-    # USER INFORMATION
-    # --------------------------------------------------------
+    story.append(Paragraph("1. Nutrition Profile", heading_style))
 
-    story.append(
-        Paragraph(
-            "1. User Information",
-            heading_style,
-        )
-    )
-
-    user_rows = [
-        [
-            Paragraph("<b>Field</b>", body_style),
-            Paragraph("<b>Information</b>", body_style),
-        ],
-        [
-            "Age",
-            pdf_text(user_data.get("age", "Not provided")),
-        ],
-        [
-            "Activity Level",
-            pdf_text(user_data.get("activity_level", "Not provided")),
-        ],
-        [
-            "Diet Preference",
-            pdf_text(user_data.get("diet_preference", "Not provided")),
-        ],
-        [
-            "Allergies",
-            pdf_text(user_data.get("allergies", "None reported")),
-        ],
+    profile_data = [
+        ["Information", "Details"],
+        ["Age Group", pdf_text(user_data.get("age_group", "Not provided"))],
+        ["Activity Level", pdf_text(user_data.get("activity_level", "Not provided"))],
+        ["Dietary Preference", pdf_text(user_data.get("dietary_preference", "Not provided"))],
+        ["Goal", pdf_text(user_data.get("goal", "Not provided"))],
     ]
 
-    user_table = Table(
-        user_rows,
-        colWidths=[150, 330],
-    )
-
-    user_table.setStyle(
+    profile_table = Table(profile_data, colWidths=[150, 320])
+    profile_table.setStyle(
         TableStyle(
             [
-                (
-                    "GRID",
-                    (0, 0),
-                    (-1, -1),
-                    0.5,
-                    colors.grey,
-                ),
-                (
-                    "VALIGN",
-                    (0, 0),
-                    (-1, -1),
-                    "TOP",
-                ),
-                (
-                    "BACKGROUND",
-                    (0, 0),
-                    (-1, 0),
-                    colors.lightgrey,
-                ),
-                (
-                    "LEFTPADDING",
-                    (0, 0),
-                    (-1, -1),
-                    7,
-                ),
-                (
-                    "RIGHTPADDING",
-                    (0, 0),
-                    (-1, -1),
-                    7,
-                ),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("PADDING", (0, 0), (-1, -1), 6),
             ]
         )
     )
+    story.append(profile_table)
+    story.append(Spacer(1, 12))
 
-    story.append(user_table)
+    allergies_input = user_data.get("food_allergies", "")
+    avoid_input = user_data.get("foods_to_avoid", "")
+    favourite_input = user_data.get("favourite_foods", "")
+    health_input = user_data.get("health_information", "")
 
-    # --------------------------------------------------------
-    # ASSESSMENT
-    # --------------------------------------------------------
+    if any([allergies_input, avoid_input, favourite_input, health_input]):
+        story.append(Paragraph("Additional Information", heading_style))
+        if allergies_input:
+            story.append(Paragraph("<b>Food Allergies:</b> " + pdf_text(allergies_input), body_style))
+        if avoid_input:
+            story.append(Paragraph("<b>Foods Avoided:</b> " + pdf_text(avoid_input), body_style))
+        if favourite_input:
+            story.append(Paragraph("<b>Favourite / Available Foods:</b> " + pdf_text(favourite_input), body_style))
+        if health_input:
+            story.append(Paragraph("<b>Health Information:</b> " + pdf_text(health_input), body_style))
 
-    story.append(
-        Paragraph(
-            "2. AI Assessment",
-            heading_style,
-        )
-    )
+    story.append(Paragraph("2. AI Assessment", heading_style))
+    story.append(Paragraph(pdf_text(assessment.get("profile_summary", "No assessment summary available.")), body_style))
 
-    assessment_summary = assessment.get(
-        "summary",
-        assessment.get(
-            "assessment",
-            "No assessment summary available.",
-        ),
-    )
+    planning_items = assessment.get("planning_considerations", [])
+    if planning_items:
+        story.append(Paragraph("<b>Planning Considerations</b>", body_style))
+        for item in planning_items:
+            story.append(Paragraph("• " + pdf_text(item), body_style))
 
-    story.append(
-        Paragraph(
-            pdf_text(assessment_summary),
-            body_style,
-        )
-    )
+    story.append(Paragraph("3. Safety Information", heading_style))
+    safety_status = safety_result.get("status", "safe_to_continue")
+    story.append(Paragraph("<b>Status:</b> " + pdf_text(safety_status), body_style))
 
-    # --------------------------------------------------------
-    # SAFETY
-    # --------------------------------------------------------
+    safety_flags = safety_result.get("safety_flags", [])
+    if safety_flags:
+        story.append(Paragraph("<b>Safety Considerations</b>", body_style))
+        for item in safety_flags:
+            story.append(Paragraph("• " + pdf_text(item), body_style))
 
-    story.append(
-        Paragraph(
-            "3. Safety Review",
-            heading_style,
-        )
-    )
+    allergy_restrictions = safety_result.get("allergy_restrictions", [])
+    if allergy_restrictions:
+        story.append(Paragraph("<b>Allergy Restrictions</b>", body_style))
+        for item in allergy_restrictions:
+            story.append(Paragraph("• " + pdf_text(item), body_style))
 
-    safety_status = safety_result.get(
-        "status",
-        "Reviewed",
-    )
+    dietary_restrictions = safety_result.get("dietary_restrictions", [])
+    if dietary_restrictions:
+        story.append(Paragraph("<b>Dietary Restrictions</b>", body_style))
+        for item in dietary_restrictions:
+            story.append(Paragraph("• " + pdf_text(item), body_style))
 
-    safety_message = safety_result.get(
-        "message",
-        safety_result.get(
-            "reason",
-            "General educational guidance is provided.",
-        ),
-    )
+    foods_to_avoid = safety_result.get("foods_to_avoid", [])
+    if foods_to_avoid:
+        story.append(Paragraph("<b>Foods to Avoid</b>", body_style))
+        for item in foods_to_avoid:
+            story.append(Paragraph("• " + pdf_text(item), body_style))
 
-    story.append(
-        Paragraph(
-            f"<b>Status:</b> {pdf_text(safety_status)}",
-            body_style,
-        )
-    )
+    story.append(Paragraph("4. Meal Ideas", heading_style))
+    meal_sections = [
+        ("Breakfast", guidance.get("breakfast_ideas", [])),
+        ("Lunch", guidance.get("lunch_ideas", [])),
+        ("Snacks", guidance.get("snack_ideas", [])),
+        ("Dinner", guidance.get("dinner_ideas", [])),
+    ]
 
-    story.append(
-        Paragraph(
-            pdf_text(safety_message),
-            body_style,
-        )
-    )
+    for meal_name, meal_items in meal_sections:
+        story.append(Paragraph(f"<b>{meal_name}</b>", body_style))
+        if meal_items:
+            if not isinstance(meal_items, list):
+                meal_items = [meal_items]
+            for item in meal_items:
+                story.append(Paragraph("• " + pdf_text(item), body_style))
+        else:
+            story.append(Paragraph("No meal ideas available.", body_style))
 
-    # --------------------------------------------------------
-    # GUIDANCE
-    # --------------------------------------------------------
-
-    story.append(
-        Paragraph(
-            "4. General Nutrition Guidance",
-            heading_style,
-        )
-    )
-
-    tips = guidance.get("tips", [])
-
-    if tips:
-
-        for tip in tips:
-
-            story.append(
-                Paragraph(
-                    f"• {pdf_text(tip)}",
-                    body_style,
-                )
-            )
-
+    story.append(Paragraph("5. General Nutrition Tips", heading_style))
+    nutrition_tips = guidance.get("nutrition_tips", [])
+    if nutrition_tips:
+        if not isinstance(nutrition_tips, list):
+            nutrition_tips = [nutrition_tips]
+        for item in nutrition_tips:
+            story.append(Paragraph("• " + pdf_text(item), body_style))
     else:
+        story.append(Paragraph("No nutrition tips available.", body_style))
 
-        general_guidance = guidance.get(
-            "guidance",
-            guidance.get(
-                "summary",
-                "No additional guidance available.",
-            ),
-        )
+    important_note = guidance.get("important_safety_note", "")
+    if important_note:
+        story.append(Paragraph("Important Safety Note", heading_style))
+        story.append(Paragraph(pdf_text(important_note), body_style))
 
-        story.append(
-            Paragraph(
-                pdf_text(general_guidance),
-                body_style,
-            )
-        )
-
-    # --------------------------------------------------------
-    # MEAL IDEAS
-    # --------------------------------------------------------
-
+    story.append(Spacer(1, 15))
     story.append(
         Paragraph(
-            "5. Meal Ideas",
-            heading_style,
-        )
-    )
-
-    meal_ideas = guidance.get(
-        "meal_ideas",
-        guidance.get(
-            "meals",
-            [],
-        ),
-    )
-
-    if meal_ideas:
-
-        for meal in meal_ideas:
-
-            if isinstance(meal, dict):
-
-                meal_name = meal.get(
-                    "name",
-                    "Meal idea",
-                )
-
-                meal_description = meal.get(
-                    "description",
-                    "",
-                )
-
-                story.append(
-                    Paragraph(
-                        f"<b>{pdf_text(meal_name)}</b>: "
-                        f"{pdf_text(meal_description)}",
-                        body_style,
-                    )
-                )
-
-            else:
-
-                story.append(
-                    Paragraph(
-                        f"• {pdf_text(meal)}",
-                        body_style,
-                    )
-                )
-
-    else:
-
-        story.append(
-            Paragraph(
-                "No meal ideas available.",
-                body_style,
-            )
-        )
-
-    # --------------------------------------------------------
-    # DISCLAIMER
-    # --------------------------------------------------------
-
-    story.append(
-        Spacer(1, 15)
-    )
-
-    story.append(
-        Paragraph(
-            "<b>Disclaimer:</b> NutriGuide AI provides general "
-            "educational nutrition information. It is not a "
-            "replacement for advice from a qualified healthcare "
-            "or nutrition professional.",
-            body_style,
+            "<b>Disclaimer:</b> This report provides general educational nutrition information and is not a substitute for professional medical advice. For medical conditions or personalised dietary treatment, consult a qualified healthcare professional or registered dietitian.",
+            small_style,
         )
     )
 
     document.build(story)
-
     buffer.seek(0)
-
     return buffer.getvalue()
-
-
-# ============================================================
-# RESET APP
-# ============================================================
-
-def reset_app():
-
-    st.session_state.page = "home"
-
-    st.session_state.user_data = {}
-
-    st.session_state.assessment = {}
-
-    st.session_state.safety_result = {}
-
-    st.session_state.guidance = {}
-
-    st.session_state.workflow_context = {}
 
 
 # ============================================================
@@ -775,196 +508,107 @@ def reset_app():
 # ============================================================
 
 def show_home():
+    col1, col2 = st.columns([3, 2])
+    
+    with col1:
+        st.title("🥗 NutriGuide AI")
+        st.subheader("Your AI-Powered Nutrition Assistant")
+        st.write("Get personalised general nutrition guidance based on your preferences, goals and dietary needs.")
+        st.info("💡 This app provides general nutrition guidance. For medical advice, consult a professional.")
+        
+    with col2:
+        # Load a free animated food graphic
+        lottie_url = "[https://lottie.host/020bd926-2a7f-4bba-9577-fb1777265a7f/p1yWpY1j7c.json](https://lottie.host/020bd926-2a7f-4bba-9577-fb1777265a7f/p1yWpY1j7c.json)"
+        lottie_anim = load_lottieurl(lottie_url)
+        if lottie_anim:
+            st_lottie(lottie_anim, height=250, key="food_animation")
 
-    st.markdown(
-        '<div class="hero-title">🥗 NutriGuide AI</div>',
-        unsafe_allow_html=True,
-    )
+    st.divider()
 
-    col1, col2 = st.columns(
-        [1.4, 1],
-        gap="large",
-    )
+    st.subheader("✨ What you can get")
+    col1, col2, col3 = st.columns(3)
 
     with col1:
-
         st.markdown(
             """
-            <div class="hero-text">
-            NutriGuide AI is an AI-powered educational nutrition
-            assistant that provides general nutrition guidance
-            through a simple multi-stage AI workflow.
+            <div class="feature-card">
+                <h3>🧠 Personalised Guidance</h3>
+                <p>Guidance based on your food preferences, activity level, goals and dietary needs.</p>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-        if st.button(
-            "🚀 Start Nutrition Assessment",
-            type="primary",
-            use_container_width=True,
-        ):
-
-            st.session_state.page = "assessment"
-
-            st.rerun()
-
     with col2:
-
-        # IMPORTANT:
-        # This must be a plain URL, NOT a Markdown link.
-
-        lottie_url = (
-            "https://lottie.host/"
-            "020bd926-2a7f-4bba-9577-fb1777265a7f/"
-            "p1yWpY1j7c.json"
+        st.markdown(
+            """
+            <div class="feature-card">
+                <h3>🍽️ Meal Ideas</h3>
+                <p>Practical breakfast, lunch, snack and dinner ideas for everyday nutrition.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
-        lottie_anim = load_lottieurl(lottie_url)
+    with col3:
+        st.markdown(
+            """
+            <div class="feature-card">
+                <h3>🛡️ Safety-Aware</h3>
+                <p>Allergies, dietary restrictions and health concerns are considered before guidance is generated.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-        if lottie_anim:
+    st.divider()
 
-            st_lottie(
-                lottie_anim,
-                height=250,
-                key="food_animation",
-            )
+    st.subheader("🚀 How it works")
+    step1, step2, step3 = st.columns(3)
 
-        else:
+    with step1:
+        st.markdown(
+            """
+            <div class="step-card">
+                <h3>1️⃣ Tell us about yourself</h3>
+                <p>Share your basic dietary preferences, activity level, goals and food information.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-            st.markdown(
-                """
-                <div style="
-                    text-align:center;
-                    font-size:100px;
-                    padding:40px;
-                ">
-                🥗
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+    with step2:
+        st.markdown(
+            """
+            <div class="step-card">
+                <h3>2️⃣ AI reviews your information</h3>
+                <p>NutriGuide AI analyses your information and checks important dietary considerations.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    # ========================================================
-    # FEATURES
-    # ========================================================
+    with step3:
+        st.markdown(
+            """
+            <div class="step-card">
+                <h3>3️⃣ Get your guidance</h3>
+                <p>Receive personalised meal ideas and practical general nutrition guidance.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    st.markdown(
-        '<div class="section-title">✨ Features</div>',
-        unsafe_allow_html=True,
-    )
+    st.divider()
 
-    feature_cols = st.columns(4)
-
-    features = [
-        (
-            "🤖",
-            "AI Assessment",
-            "Analyse your general nutrition information "
-            "using an AI workflow.",
-        ),
-        (
-            "🛡️",
-            "Safety Review",
-            "A separate safety stage checks the generated "
-            "guidance before it is shown.",
-        ),
-        (
-            "🍎",
-            "Meal Ideas",
-            "Receive simple, general meal ideas based on "
-            "your preferences.",
-        ),
-        (
-            "📄",
-            "PDF Report",
-            "Download your results as a professional PDF report.",
-        ),
-    ]
-
-    for column, feature in zip(
-        feature_cols,
-        features,
-    ):
-
-        icon, title, description = feature
-
-        with column:
-
-            st.markdown(
-                f"""
-                <div class="card">
-                    <div style="font-size:2rem;">{icon}</div>
-                    <h3>{title}</h3>
-                    <p>{description}</p>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-    # ========================================================
-    # WORKFLOW
-    # ========================================================
-
-    st.markdown(
-        '<div class="section-title">🔄 AI Workflow</div>',
-        unsafe_allow_html=True,
-    )
-
-    workflow_cols = st.columns(3)
-
-    workflow = [
-        (
-            "1️⃣",
-            "Assessment Agent",
-            "Reviews the information entered by the user "
-            "and creates an assessment summary.",
-        ),
-        (
-            "2️⃣",
-            "Safety Agent",
-            "Reviews the assessment and checks whether the "
-            "planned guidance is appropriate.",
-        ),
-        (
-            "3️⃣",
-            "Nutrition Guidance Agent",
-            "Uses the previous stages as context and creates "
-            "general educational nutrition guidance.",
-        ),
-    ]
-
-    for column, item in zip(
-        workflow_cols,
-        workflow,
-    ):
-
-        number, title, description = item
-
-        with column:
-
-            st.markdown(
-                f"""
-                <div class="workflow-card">
-                    <div style="font-size:1.8rem;">{number}</div>
-                    <h3>{title}</h3>
-                    <p>{description}</p>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-    # ========================================================
-    # DISCLAIMER
-    # ========================================================
+    if st.button("🥗 Start Nutrition Assessment", type="primary", use_container_width=True, key="start_assessment_home"):
+        st.session_state.page = "assessment"
+        st.rerun()
 
     st.markdown(
         """
-        <div class="footer">
-            <b>NutriGuide AI</b><br>
-            General educational nutrition guidance only.
-            This application does not provide medical diagnosis
-            or professional treatment.
+        <div class="app-footer">
+            NutriGuide AI is for general educational nutrition guidance and is not a substitute for professional medical advice.
         </div>
         """,
         unsafe_allow_html=True,
@@ -972,414 +616,169 @@ def show_home():
 
 
 # ============================================================
-# ASSESSMENT PAGE
+# NUTRITION ASSESSMENT PAGE
 # ============================================================
 
 def show_assessment():
-
     st.title("📝 Nutrition Assessment")
-
-    st.write(
-        "Enter the information below to generate your "
-        "personalised general nutrition guidance."
-    )
-
-    st.info(
-        "This application provides general educational information "
-        "and does not replace advice from a qualified professional."
-    )
-
-    # ========================================================
-    # FORM
-    # ========================================================
+    st.write("Tell us a little about your nutrition preferences and goals. This information will be used to prepare general personalised guidance.")
+    st.divider()
 
     with st.form("nutrition_assessment_form"):
-
         st.subheader("👤 Basic Information")
-
         col1, col2 = st.columns(2)
-
         with col1:
-
-            age = st.number_input(
-                "Age",
-                min_value=1,
-                max_value=100,
-                value=18,
-                step=1,
-            )
-
+            age_group = st.selectbox("Age Group", ["Under 18", "18–30", "31–45", "46–60", "60+"])
         with col2:
+            activity_level = st.selectbox("Activity Level", ["Low", "Moderate", "High"])
 
-            activity_level = st.selectbox(
-                "Activity Level",
-                [
-                    "Low",
-                    "Moderate",
-                    "Active",
-                    "Very Active",
-                ],
-            )
+        st.subheader("🥗 Dietary Preferences")
+        dietary_preference = st.selectbox("Dietary Preference", ["No specific preference", "Vegetarian", "Vegan", "Other"])
+        
+        dietary_other = ""
+        if dietary_preference == "Other":
+            dietary_other = st.text_input("Please describe your dietary preference")
 
-        st.subheader("🍽️ Food Preferences")
+        food_allergies = st.text_area("Food Allergies", placeholder="Example: peanuts, eggs, milk")
+        foods_to_avoid = st.text_area("Foods You Avoid", placeholder="Example: very spicy food, certain vegetables")
+        favourite_foods = st.text_area("Favourite / Available Foods", placeholder="Example: rice, roti, chicken, vegetables, fruit, yoghurt")
 
-        diet_preference = st.selectbox(
-            "Diet Preference",
-            [
-                "No specific preference",
-                "Vegetarian",
-                "Vegan",
-                "Halal",
-                "Other",
-            ],
-        )
+        st.subheader("🎯 Your Goal")
+        goal = st.selectbox("What would you like help with?", ["Healthy eating", "Fitness / active lifestyle", "Better meal variety", "Healthy lifestyle", "General health concern", "Other"])
+        
+        other_goal = ""
+        if goal == "Other":
+            other_goal = st.text_input("Please describe your goal")
 
-        allergies = st.text_area(
-            "Food Allergies or Intolerances",
-            placeholder=(
-                "Example: peanuts, milk, eggs, "
-                "or write 'None'"
-            ),
-        )
+        health_information = st.text_area("Health Information / Concerns", placeholder="Optional. Mention any health concern you want the AI to consider.")
 
-        food_preferences = st.text_area(
-            "Foods You Like",
-            placeholder=(
-                "Example: rice, vegetables, chicken, "
-                "fruit, yoghurt..."
-            ),
-        )
-
-        food_dislikes = st.text_area(
-            "Foods You Dislike",
-            placeholder=(
-                "Example: spicy foods, certain vegetables..."
-            ),
-        )
-
-        health_notes = st.text_area(
-            "Additional Information",
-            placeholder=(
-                "Optional. Add general information that "
-                "may help provide safer educational guidance."
-            ),
-        )
-
-        submitted = st.form_submit_button(
-            "🤖 Generate Nutrition Guidance",
-            type="primary",
-            use_container_width=True,
-        )
-
-    # ========================================================
-    # FORM SUBMITTED
-    # ========================================================
+        st.divider()
+        submitted = st.form_submit_button("🧠 Generate Nutrition Guidance", type="primary", use_container_width=True)
 
     if submitted:
+        actual_preference = dietary_other.strip() if (dietary_preference == "Other" and dietary_other.strip()) else dietary_preference
+        actual_goal = other_goal.strip() if (goal == "Other" and other_goal.strip()) else goal
 
         user_data = {
-            "age": age,
+            "age_group": age_group,
             "activity_level": activity_level,
-            "diet_preference": diet_preference,
-            "allergies": allergies or "None",
-            "food_preferences": food_preferences or "Not provided",
-            "food_dislikes": food_dislikes or "None",
-            "health_notes": health_notes or "None",
+            "dietary_preference": actual_preference,
+            "food_allergies": food_allergies.strip(),
+            "foods_to_avoid": foods_to_avoid.strip(),
+            "favourite_foods": favourite_foods.strip(),
+            "goal": actual_goal,
+            "health_information": health_information.strip(),
         }
 
         st.session_state.user_data = user_data
 
-        # ====================================================
-        # STAGE 1 - ASSESSMENT AGENT
-        # ====================================================
+        try:
+            with st.spinner("🧠 Analysing your information..."):
+                assessment_prompt = f"""
+You are the Assessment Agent for NutriGuide AI. Your job is to analyse the user's nutrition information and prepare a structured profile.
+USER INFORMATION: {json.dumps(user_data, indent=2)}
 
-        with st.status(
-            "🔄 Running AI workflow...",
-            expanded=True,
-        ) as status:
-
-            st.write("1️⃣ Running Assessment Agent...")
-
-            assessment_prompt = f"""
-You are the Assessment Agent in a nutrition education application.
-
-Review the following user information:
-
-{json.dumps(user_data, indent=2)}
-
-Create a concise educational assessment.
-
-Important rules:
-- Do not diagnose diseases.
-- Do not provide medical treatment.
-- Do not recommend restrictive diets.
-- Do not give calorie targets.
-- Do not provide weight-loss or weight-gain targets.
-- Focus on general nutrition habits.
-- Respect allergies and food preferences.
-- Be age-appropriate.
-- If the user appears to be young, use extra caution.
-
-Return ONLY valid JSON.
-
-Use this structure:
-
+IMPORTANT SAFETY RULES:
+- This app provides general nutrition education. Do not diagnose conditions or prescribe diets.
+- No restrictive weight-loss plans, targets, or calorie tracking.
+- Respect allergies and age bounds.
+Return ONLY valid JSON using exactly this structure:
 {{
-    "summary": "short educational assessment",
-    "positive_habits": [
-        "habit 1",
-        "habit 2"
-    ],
-    "areas_to_focus": [
-        "area 1",
-        "area 2"
-    ]
+  "profile_summary": "Short general summary.",
+  "dietary_preference": "Dietary preference",
+  "allergies": [],
+  "foods_to_avoid": [],
+  "goal": "Main goal",
+  "plan_type": "long_term_guidance",
+  "plan_type_reason": "Short explanation.",
+  "planning_considerations": [],
+  "safety_notes": [],
+  "professional_advice_recommended": false
 }}
 """
+                assessment_text = generate_ai_response(assessment_prompt)
+                assessment = clean_json_response(assessment_text)
+                st.session_state.assessment = assessment
 
-            assessment_response = generate_ai_response(
-                assessment_prompt,
-                temperature=0.2,
-            )
+            with st.spinner("🛡️ Checking your dietary needs..."):
+                safety_prompt = f"""
+You are the Safety Agent for NutriGuide AI. Review the user's information and Assessment before guidance is generated.
+USER INFORMATION: {json.dumps(user_data, indent=2)}
+ASSESSMENT: {json.dumps(assessment, indent=2)}
 
-            assessment = clean_json_response(
-                assessment_response
-            )
-
-            if not assessment:
-
-                assessment = {
-                    "summary": (
-                        "The assessment could not be generated. "
-                        "Please try again."
-                    ),
-                    "positive_habits": [],
-                    "areas_to_focus": [],
-                }
-
-            st.session_state.assessment = assessment
-
-            st.write("✅ Assessment Agent completed.")
-
-            # =================================================
-            # STAGE 2 - SAFETY AGENT
-            # =================================================
-
-            st.write("2️⃣ Running Safety Agent...")
-
-            safety_prompt = f"""
-You are the Safety Agent for NutriGuide AI.
-
-Review the user's information and the assessment.
-
-USER INFORMATION:
-{json.dumps(user_data, indent=2)}
-
-ASSESSMENT:
-{json.dumps(assessment, indent=2)}
-
-Check the planned educational guidance for safety.
-
-Rules:
-- Do not diagnose.
-- Do not prescribe medication.
-- Do not create restrictive diets.
-- Do not recommend calorie restriction.
-- Do not provide weight-loss targets.
-- Do not provide weight-gain targets.
-- Do not encourage skipping meals.
-- Do not promote unhealthy eating behaviour.
-- Respect allergies.
-- Respect the user's age.
-- General balanced nutrition education is acceptable.
-
-Return ONLY valid JSON.
-
-Structure:
-
+Return ONLY valid JSON using exactly this structure:
 {{
-    "status": "Safe",
-    "message": "short safety explanation",
-    "important_notes": [
-        "note 1",
-        "note 2"
-    ]
+  "status": "safe_to_continue",
+  "allergy_restrictions": [],
+  "dietary_restrictions": [],
+  "foods_to_avoid": [],
+  "safety_flags": [],
+  "meal_planning_rules": [],
+  "professional_advice_recommended": false
 }}
 """
+                safety_text = generate_ai_response(safety_prompt)
+                safety_result = clean_json_response(safety_text)
+                st.session_state.safety_result = safety_result
 
-            safety_response = generate_ai_response(
-                safety_prompt,
-                temperature=0.1,
-            )
+            with st.spinner("🍽️ Preparing your nutrition guidance..."):
+                guidance_prompt = f"""
+You are the Nutrition Guidance Agent for NutriGuide AI. Create personalised GENERAL nutrition guidance.
+USER INFORMATION: {json.dumps(user_data, indent=2)}
+ASSESSMENT: {json.dumps(assessment, indent=2)}
+SAFETY CHECK: {json.dumps(safety_result, indent=2)}
 
-            safety_result = clean_json_response(
-                safety_response
-            )
-
-            if not safety_result:
-
-                safety_result = {
-                    "status": "Reviewed",
-                    "message": (
-                        "The guidance should remain general "
-                        "and educational."
-                    ),
-                    "important_notes": [],
-                }
-
-            st.session_state.safety_result = safety_result
-
-            st.write("✅ Safety Agent completed.")
-
-            # =================================================
-            # STAGE 3 - GUIDANCE AGENT
-            # =================================================
-
-            st.write(
-                "3️⃣ Running Nutrition Guidance Agent..."
-            )
-
-            guidance_prompt = f"""
-You are the Nutrition Guidance Agent.
-
-Generate general educational nutrition guidance using
-the context produced by the previous AI stages.
-
-USER INFORMATION:
-{json.dumps(user_data, indent=2)}
-
-ASSESSMENT:
-{json.dumps(assessment, indent=2)}
-
-SAFETY REVIEW:
-{json.dumps(safety_result, indent=2)}
-
-Your response must:
-- Be educational and practical.
-- Encourage balanced meals and variety.
-- Respect allergies and dietary preferences.
-- Avoid medical diagnosis.
-- Avoid medical treatment.
-- Avoid restrictive diets.
-- Avoid calorie counting.
-- Avoid weight-loss targets.
-- Avoid weight-gain targets.
-- Avoid body-size comparisons.
-- Avoid encouraging meal skipping.
-- Avoid unhealthy eating behaviour.
-- Be suitable for the user's age.
-- If there is a potentially serious health concern,
-  recommend discussing it with a parent/guardian or
-  qualified healthcare professional rather than diagnosing it.
-
-Return ONLY valid JSON.
-
-Structure:
-
+Return ONLY valid JSON using exactly this structure:
 {{
-    "summary": "short general nutrition guidance summary",
-    "tips": [
-        "practical tip 1",
-        "practical tip 2",
-        "practical tip 3",
-        "practical tip 4"
-    ],
-    "meal_ideas": [
-        {{
-            "name": "Breakfast",
-            "description": "balanced general meal idea"
-        }},
-        {{
-            "name": "Lunch",
-            "description": "balanced general meal idea"
-        }},
-        {{
-            "name": "Dinner",
-            "description": "balanced general meal idea"
-        }},
-        {{
-            "name": "Snack",
-            "description": "simple snack idea"
-        }}
-    ],
-    "hydration_tip": "general hydration advice",
-    "professional_note": "when professional advice may be useful"
+  "plan_title": "Personalised Nutrition Guidance",
+  "guidance_type": "Long-term healthy lifestyle guidance",
+  "duration": "Ongoing guidance - no fixed duration",
+  "important_safety_note": "Short safety message.",
+  "breakfast_ideas": ["idea 1", "idea 2", "idea 3"],
+  "lunch_ideas": ["idea 1", "idea 2", "idea 3"],
+  "snack_ideas": ["idea 1", "idea 2", "idea 3"],
+  "dinner_ideas": ["idea 1", "idea 2", "idea 3"],
+  "nutrition_tips": ["tip 1", "tip 2", "tip 3"]
 }}
 """
-
-            guidance_response = generate_ai_response(
-                guidance_prompt,
-                temperature=0.3,
-            )
-
-            guidance = clean_json_response(
-                guidance_response
-            )
-
-            if not guidance:
-
-                guidance = {
-                    "summary": (
-                        "General balanced nutrition habits "
-                        "can support everyday wellbeing."
-                    ),
-                    "tips": [
-                        "Include a variety of foods.",
-                        "Try to include fruits and vegetables.",
-                        "Choose regular balanced meals.",
-                        "Drink water regularly.",
-                    ],
-                    "meal_ideas": [],
-                    "hydration_tip": (
-                        "Drink water regularly throughout the day."
-                    ),
-                    "professional_note": (
-                        "Speak with a qualified professional "
-                        "for individual health concerns."
-                    ),
-                }
-
-            st.session_state.guidance = guidance
-
-            # =================================================
-            # PASS CONTEXT BETWEEN AGENTS
-            # =================================================
+                guidance_text = generate_ai_response(guidance_prompt)
+                guidance = clean_json_response(guidance_text)
+                st.session_state.guidance = guidance
 
             st.session_state.workflow_context = {
-                "user": user_data,
+                "user_data": user_data,
                 "assessment": assessment,
-                "safety": safety_result,
+                "safety_result": safety_result,
                 "guidance": guidance,
             }
 
-            st.write(
-                "✅ Nutrition Guidance Agent completed."
-            )
+            # Celebration UI block
+            st.toast("Success! Your nutrition plan is ready.", icon="🎉")
+            st.balloons()
+            time.sleep(2) 
 
-            status.update(
-                label="✅ AI workflow completed!",
-                state="complete",
-                expanded=False,
-            )
+            st.session_state.page = "results"
+            st.rerun()
 
-        st.session_state.page = "results"
-
-        st.rerun()
-
-    # ========================================================
-    # BACK BUTTON
-    # ========================================================
-
-    st.divider()
-
-    if st.button(
-        "← Back to Home",
-        use_container_width=True,
-    ):
-
-        st.session_state.page = "home"
-
-        st.rerun()
+        except Exception as error:
+            error_code = str(error)
+            if error_code == "INVALID_API_KEY":
+                st.error("🔑 Your Groq API key is invalid or not authorised.")
+                st.info("Please check GROQ_API_KEY in your Streamlit Secrets and try again.")
+            elif error_code == "API_QUOTA_EXCEEDED":
+                st.warning("⏳ Groq API rate limit or quota has been reached.")
+            elif error_code == "GROQ_TEMPORARILY_UNAVAILABLE":
+                st.warning("🔄 Groq service is temporarily unavailable.")
+            elif error_code == "INVALID_JSON":
+                st.error("📄 The AI returned an unexpected response format.")
+            else:
+                st.error(f"⚠️ RAW ERROR DETAILS: {str(error)}")
+            
+            st.divider()
+            if st.button("⬅️ Back to Home", key="assessment_error_back_home"):
+                reset_app()
+                st.session_state.page = "home"
+                st.rerun()
 
 
 # ============================================================
@@ -1387,346 +786,149 @@ Structure:
 # ============================================================
 
 def show_results():
+    assessment = st.session_state.get("assessment", {})
+    safety_result = st.session_state.get("safety_result", {})
+    guidance = st.session_state.get("guidance", {})
+    user_data = st.session_state.get("user_data", {})
 
-    st.title("📊 Nutrition Results Dashboard")
+    st.title("📊 Nutrition Dashboard")
+    st.write("Your personalised general nutrition guidance is ready to review.")
+    st.divider()
 
-    user_data = st.session_state.user_data
-
-    assessment = st.session_state.assessment
-
-    safety_result = st.session_state.safety_result
-
-    guidance = st.session_state.guidance
-
-    # ========================================================
-    # TOP SUMMARY
-    # ========================================================
-
-    st.success(
-        "Your AI nutrition workflow has been completed successfully."
-    )
+    plan_title = guidance.get("plan_title", "Personalised Nutrition Guidance")
+    guidance_type = guidance.get("guidance_type", "General nutrition guidance")
+    duration = guidance.get("duration", "Ongoing guidance")
 
     st.markdown(
-        '<div class="section-title">👤 Assessment Overview</div>',
+        f"""
+        <div class="summary-card">
+            <h2>🌱 {plan_title}</h2>
+            <p>{guidance_type}</p>
+            <p><strong>Approach:</strong> {duration}</p>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
+    st.subheader("👤 Quick Overview")
     col1, col2, col3, col4 = st.columns(4)
-
     with col1:
-
-        st.metric(
-            "Age",
-            user_data.get(
-                "age",
-                "N/A",
-            ),
-        )
-
+        st.metric("Age Group", user_data.get("age_group", "Not provided"))
     with col2:
-
-        st.metric(
-            "Activity",
-            user_data.get(
-                "activity_level",
-                "N/A",
-            ),
-        )
-
+        st.metric("Activity", user_data.get("activity_level", "Not provided"))
     with col3:
-
-        st.metric(
-            "Diet",
-            user_data.get(
-                "diet_preference",
-                "N/A",
-            ),
-        )
-
+        st.metric("Diet", user_data.get("dietary_preference", "Not provided"))
     with col4:
+        st.metric("Goal", user_data.get("goal", "Not provided"))
 
-        st.metric(
-            "Safety",
-            safety_result.get(
-                "status",
-                "Reviewed",
-            ),
-        )
+    st.divider()
+    st.subheader("🛡️ Safety Status")
 
-    # ========================================================
-    # SAFETY
-    # ========================================================
-
-    st.markdown(
-        '<div class="section-title">🛡️ Safety Review</div>',
-        unsafe_allow_html=True,
-    )
-
-    safety_status = safety_result.get(
-        "status",
-        "Reviewed",
-    )
-
-    safety_message = safety_result.get(
-        "message",
-        "General educational guidance is provided.",
-    )
-
-    if safety_status.lower() == "safe":
-
-        st.markdown(
-            f"""
-            <div class="status-safe">
-                <h3>✅ {safety_status}</h3>
-                <p>{safety_message}</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
+    safety_status = safety_result.get("status", "safe_to_continue")
+    if safety_status == "professional_review_recommended":
+        st.warning("👩‍⚕️ Professional review is recommended for condition-specific dietary advice.")
+    elif safety_status == "continue_with_caution":
+        st.warning("⚠️ Continue with caution and seek professional advice where appropriate.")
     else:
+        st.success("✅ Dietary preferences and safety information have been considered.")
 
-        st.markdown(
-            f"""
-            <div class="status-warning">
-                <h3>⚠️ {safety_status}</h3>
-                <p>{safety_message}</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    with st.expander("🧠 View AI Assessment", expanded=True):
+        st.write(assessment.get("profile_summary", "No assessment summary available."))
+        planning_considerations = assessment.get("planning_considerations", [])
+        if planning_considerations:
+            st.markdown("**Planning Considerations**")
+            display_list_items(planning_considerations)
 
-    # ========================================================
-    # ASSESSMENT SUMMARY
-    # ========================================================
+    allergy_restrictions = safety_result.get("allergy_restrictions", [])
+    dietary_restrictions = safety_result.get("dietary_restrictions", [])
+    foods_to_avoid = safety_result.get("foods_to_avoid", [])
+    safety_flags = safety_result.get("safety_flags", [])
 
-    st.markdown(
-        '<div class="section-title">🤖 AI Assessment</div>',
-        unsafe_allow_html=True,
-    )
+    if allergy_restrictions or dietary_restrictions or foods_to_avoid or safety_flags:
+        st.subheader("🚫 Dietary Restrictions")
+        col1, col2 = st.columns(2)
+        with col1:
+            with st.expander("🚫 Allergies", expanded=True):
+                display_list_items(allergy_restrictions, empty_message="No allergies reported.")
+            with st.expander("🥗 Foods to Avoid", expanded=True):
+                display_list_items(foods_to_avoid, empty_message="No foods to avoid reported.")
+        with col2:
+            with st.expander("🥗 Dietary Restrictions", expanded=True):
+                display_list_items(dietary_restrictions, empty_message="No additional dietary restrictions.")
+            with st.expander("⚠️ Safety Considerations", expanded=True):
+                display_list_items(safety_flags, empty_message="No additional safety flags.")
 
-    st.markdown(
-        '<div class="result-card">',
-        unsafe_allow_html=True,
-    )
+    professional_advice = get_bool(assessment.get("professional_advice_recommended", False)) or get_bool(safety_result.get("professional_advice_recommended", False))
+    if professional_advice:
+        st.warning("👩‍⚕️ For health or medical concerns, please consult a qualified healthcare professional or registered dietitian.")
 
-    summary = assessment.get(
-        "summary",
-        "No assessment summary available.",
-    )
-
-    st.write(summary)
-
-    st.markdown(
-        "</div>",
-        unsafe_allow_html=True,
-    )
+    st.divider()
+    st.subheader("🍽️ Meal Ideas")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("### 🍳 Breakfast")
+        display_list_items(guidance.get("breakfast_ideas", []), card_style=True)
+    with col2:
+        st.markdown("### 🥗 Lunch")
+        display_list_items(guidance.get("lunch_ideas", []), card_style=True)
 
     col1, col2 = st.columns(2)
-
     with col1:
-
-        st.subheader("✅ Positive Habits")
-
-        display_list_items(
-            assessment.get(
-                "positive_habits",
-                [],
-            )
-        )
-
+        st.markdown("### 🍎 Snacks")
+        display_list_items(guidance.get("snack_ideas", []), card_style=True)
     with col2:
+        st.markdown("### 🍽️ Dinner")
+        display_list_items(guidance.get("dinner_ideas", []), card_style=True)
 
-        st.subheader("🎯 Areas to Focus On")
+    st.divider()
+    st.subheader("💡 General Nutrition Tips")
+    display_list_items(guidance.get("nutrition_tips", []), empty_message="No nutrition tips available.")
 
-        display_list_items(
-            assessment.get(
-                "areas_to_focus",
-                [],
-            )
-        )
+    st.divider()
+    important_safety_note = guidance.get("important_safety_note", "These suggestions are general nutrition guidance.")
+    st.info(important_safety_note)
+    st.info("🥗 For medical conditions or personalised dietary treatment, consult a qualified healthcare professional.")
 
-    # ========================================================
-    # GUIDANCE
-    # ========================================================
-
-    st.markdown(
-        '<div class="section-title">🥗 General Nutrition Guidance</div>',
-        unsafe_allow_html=True,
-    )
-
-    guidance_summary = guidance.get(
-        "summary",
-        "No guidance summary available.",
-    )
-
-    st.markdown(
-        '<div class="result-card">',
-        unsafe_allow_html=True,
-    )
-
-    st.write(guidance_summary)
-
-    st.markdown(
-        "</div>",
-        unsafe_allow_html=True,
-    )
-
-    # ========================================================
-    # TIPS
-    # ========================================================
-
-    st.subheader("💡 Practical Tips")
-
-    tips = guidance.get(
-        "tips",
-        [],
-    )
-
-    display_list_items(tips)
-
-    # ========================================================
-    # MEAL IDEAS
-    # ========================================================
-
-    st.subheader("🍽️ Meal Ideas")
-
-    meal_ideas = guidance.get(
-        "meal_ideas",
-        [],
-    )
-
-    if meal_ideas:
-
-        for meal in meal_ideas:
-
-            if isinstance(meal, dict):
-
-                meal_name = meal.get(
-                    "name",
-                    "Meal",
-                )
-
-                meal_description = meal.get(
-                    "description",
-                    "",
-                )
-
-                st.markdown(
-                    f"""
-                    <div class="card" style="margin-bottom:1rem;">
-                        <h4>{meal_name}</h4>
-                        <p>{meal_description}</p>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-            else:
-
-                st.write(f"• {meal}")
-
-    else:
-
-        st.info(
-            "No meal ideas were generated."
-        )
-
-    # ========================================================
-    # HYDRATION
-    # ========================================================
-
-    st.subheader("💧 Hydration")
-
-    st.info(
-        guidance.get(
-            "hydration_tip",
-            "Drink water regularly throughout the day.",
-        )
-    )
-
-    # ========================================================
-    # PROFESSIONAL NOTE
-    # ========================================================
-
-    professional_note = guidance.get(
-        "professional_note",
-        "",
-    )
-
-    if professional_note:
-
-        st.warning(
-            professional_note
-        )
-
-    # ========================================================
-    # PDF REPORT
-    # ========================================================
-
-    st.markdown(
-        '<div class="section-title">📄 Download Report</div>',
-        unsafe_allow_html=True,
-    )
+    st.divider()
+    st.subheader("📥 Your Report")
+    st.write("Download your current nutrition assessment and AI-generated guidance as a PDF.")
 
     try:
-
-        pdf_data = create_pdf_report(
-            user_data,
-            assessment,
-            safety_result,
-            guidance,
-        )
-
+        pdf_data = create_pdf_report(user_data, assessment, safety_result, guidance)
         st.download_button(
-            label="📥 Download PDF Report",
+            label="📥 Download Nutrition Report",
             data=pdf_data,
             file_name="NutriGuide_AI_Report.pdf",
             mime="application/pdf",
-            use_container_width=True,
-        )
-
-    except Exception:
-
-        st.error(
-            "The PDF report could not be generated. "
-            "Please try again."
-        )
-
-    # ========================================================
-    # ACTION BUTTONS
-    # ========================================================
-
-    st.divider()
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        if st.button(
-            "🔄 New Assessment",
             type="primary",
             use_container_width=True,
-        ):
+            key="download_nutrition_report",
+        )
+    except Exception as error:
+        st.error("⚠️ The PDF report could not be generated.")
 
+    st.divider()
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🔄 Create New Assessment", type="primary", use_container_width=True):
             reset_app()
-
             st.session_state.page = "assessment"
-
             st.rerun()
-
     with col2:
-
-        if st.button(
-            "🏠 Back to Home",
-            use_container_width=True,
-        ):
-
+        if st.button("🏠 Back to Home", use_container_width=True):
             reset_app()
-
             st.session_state.page = "home"
-
             st.rerun()
+
+    st.markdown(
+        """
+        <div class="app-footer">
+            NutriGuide AI • General educational nutrition guidance
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # ============================================================
@@ -1734,19 +936,11 @@ def show_results():
 # ============================================================
 
 if st.session_state.page == "home":
-
     show_home()
-
 elif st.session_state.page == "assessment":
-
     show_assessment()
-
 elif st.session_state.page == "results":
-
     show_results()
-
 else:
-
     reset_app()
-
     show_home()
