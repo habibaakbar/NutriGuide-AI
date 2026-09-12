@@ -37,8 +37,31 @@ if not API_KEY:
 client = genai.Client(api_key=API_KEY)
 
 MODEL_NAME = "gemini-3.6-flash"
+# load_dotenv()
 
+# API_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv(
+#     "GEMINI_API_KEY"
+# )
 
+# if API_KEY:
+#     API_KEY = API_KEY.strip()
+
+# if not API_KEY:
+#     st.error(
+#         "🔑 Gemini API key is missing."
+#     )
+
+#     st.info(
+#         "For Streamlit Cloud, add GEMINI_API_KEY "
+#         "under Settings → Secrets. "
+#         "For local development, add it to your .env file."
+#     )
+
+#     st.stop()
+
+# client = genai.Client(api_key=API_KEY)
+
+# MODEL_NAME = "gemini-3.6-flash"
 # ============================================================
 # SESSION STATE
 # ============================================================
@@ -134,7 +157,7 @@ def clean_json_response(text):
 
 
 def generate_ai_response(prompt, retries=3):
-    """Generate Gemini response with basic retry and quota handling."""
+    """Generate Gemini response with safe error handling."""
 
     for attempt in range(retries):
         try:
@@ -144,32 +167,65 @@ def generate_ai_response(prompt, retries=3):
             )
 
             if not response.text:
-                raise RuntimeError("Gemini returned an empty response.")
+                raise RuntimeError(
+                    "Gemini returned an empty response."
+                )
 
             return response.text
 
         except Exception as error:
-            error_message = str(error)
+            error_message = str(error).lower()
 
-            # Temporary Gemini server overload.
-            if "503" in error_message or "UNAVAILABLE" in error_message:
+            # ------------------------------------------------
+            # INVALID / UNAUTHORISED API KEY
+            # ------------------------------------------------
+            if (
+                "401" in error_message
+                or "unauthorized" in error_message
+                or "api key" in error_message
+                and "invalid" in error_message
+            ):
+                raise RuntimeError(
+                    "INVALID_API_KEY"
+                ) from error
+
+            # ------------------------------------------------
+            # QUOTA / RATE LIMIT
+            # ------------------------------------------------
+            if (
+                "429" in error_message
+                or "resource_exhausted" in error_message
+                or "quota" in error_message
+                or "rate limit" in error_message
+            ):
+                raise RuntimeError(
+                    "API_QUOTA_EXCEEDED"
+                ) from error
+
+            # ------------------------------------------------
+            # TEMPORARY GEMINI SERVER ERROR
+            # ------------------------------------------------
+            if (
+                "503" in error_message
+                or "unavailable" in error_message
+                or "service unavailable" in error_message
+            ):
                 if attempt < retries - 1:
                     time.sleep(3)
                     continue
 
-            # Free-tier/API quota issue.
-            if (
-                "429" in error_message
-                or "RESOURCE_EXHAUSTED" in error_message
-            ):
                 raise RuntimeError(
-                    "Gemini API quota has been exceeded. "
-                    "Please try again later or use a Gemini API "
-                    "project with available quota."
+                    "GEMINI_TEMPORARILY_UNAVAILABLE"
                 ) from error
 
-            raise error
+            # ------------------------------------------------
+            # OTHER ERROR
+            # ------------------------------------------------
+            raise RuntimeError(
+                "GEMINI_REQUEST_FAILED"
+            ) from error
 
+    raise RuntimeError("GEMINI_REQUEST_FAILED")
 
 def display_list_items(items, empty_message="No information available."):
     """Display a list safely in the Streamlit UI."""
@@ -694,23 +750,70 @@ Use exactly this structure:
             st.rerun()
 
         except Exception as error:
-            st.error(
-                "⚠️ Something went wrong while generating your "
-                "nutrition guidance."
-            )
+            error_code = str(error)
 
-            st.error(str(error))
+            if error_code == "INVALID_API_KEY":
+                st.error(
+                    "🔑 Your Gemini API key is invalid or not authorised."
+                )
 
-            st.info(
-                "Please check your Gemini API key/quota and try "
-                "again."
-            )
+                st.info(
+                    "Please check GEMINI_API_KEY in your Streamlit "
+                    "Secrets and try again."
+                )
 
-    st.divider()
+            elif error_code == "API_QUOTA_EXCEEDED":
+                st.warning(
+                    "⏳ Gemini API quota has been reached."
+                )
 
-    if st.button("⬅️ Back to Home"):
-        st.session_state.page = "home"
-        st.rerun()
+                st.info(
+                    "Please wait and try again later, or check your "
+                    "Gemini API project quota."
+                )
+
+            elif error_code == "GEMINI_TEMPORARILY_UNAVAILABLE":
+                st.warning(
+                    "🔄 Gemini is temporarily unavailable."
+                )
+
+                st.info(
+                    "Please wait a few moments and try again."
+                )
+
+            elif error_code == "GEMINI_REQUEST_FAILED":
+                st.error(
+                    "⚠️ We could not generate your nutrition guidance."
+                )
+
+                st.info(
+                    "Please try again. If the problem continues, "
+                    "check your Gemini API configuration."
+                )
+
+            elif "invalid JSON" in error_code.lower():
+                st.error(
+                    "📄 The AI returned an unexpected response."
+                )
+
+                st.info(
+                    "Please try generating the guidance again."
+                )
+
+            else:
+                st.error(
+                    "⚠️ Something unexpected happened."
+                )
+
+                st.info(
+                    "Please try again."
+                )
+
+            st.divider()
+
+            if st.button("⬅️ Back to Home"):
+                st.session_state.page = "home"
+                st.rerun()
 
 
 # ============================================================
