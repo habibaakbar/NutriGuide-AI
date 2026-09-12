@@ -1,11 +1,23 @@
 import os
 import json
 import time
+from io import BytesIO
+from datetime import datetime
 
 import streamlit as st
 from dotenv import load_dotenv
 from google import genai
-
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle,
+)
+from reportlab.lib import colors
 
 # ============================================================
 # PAGE CONFIGURATION
@@ -36,8 +48,7 @@ if not API_KEY:
 if API_KEY:
     API_KEY = API_KEY.strip()
 
-if API_KEY:
-    API_KEY = API_KEY.strip()
+
 
 if not API_KEY:
     st.error("🔑 Gemini API key is missing.")
@@ -1029,6 +1040,405 @@ def show_results():
     user_data = st.session_state.get(
         "user_data",
         {},
+    )
+
+    # --------------------------------------------------------
+    # DASHBOARD HEADER
+    # --------------------------------------------------------
+
+    st.title("📊 Nutrition Dashboard")
+
+    st.write(
+        "Your personalised general nutrition guidance is "
+        "ready to review."
+    )
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # DASHBOARD SUMMARY
+    # --------------------------------------------------------
+
+    plan_title = guidance.get(
+        "plan_title",
+        "Personalised Nutrition Guidance",
+    )
+
+    guidance_type = guidance.get(
+        "guidance_type",
+        "General nutrition guidance",
+    )
+
+    duration = guidance.get(
+        "duration",
+        "Ongoing guidance",
+    )
+
+    st.markdown(
+        f"""
+        <div class="summary-card">
+            <h2>🌱 {plan_title}</h2>
+            <p>{guidance_type}</p>
+            <p><strong>Approach:</strong> {duration}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # --------------------------------------------------------
+    # QUICK OVERVIEW
+    # --------------------------------------------------------
+
+    st.subheader("👤 Quick Overview")
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric(
+            "Age Group",
+            user_data.get(
+                "age_group",
+                "Not provided",
+            ),
+        )
+
+    with col2:
+        st.metric(
+            "Activity",
+            user_data.get(
+                "activity_level",
+                "Not provided",
+            ),
+        )
+
+    with col3:
+        st.metric(
+            "Diet",
+            user_data.get(
+                "dietary_preference",
+                "Not provided",
+            ),
+        )
+
+    with col4:
+        st.metric(
+            "Goal",
+            user_data.get(
+                "goal",
+                "Not provided",
+            ),
+        )
+
+    # --------------------------------------------------------
+    # SAFETY STATUS CARD
+    # --------------------------------------------------------
+
+    st.divider()
+
+    st.subheader("🛡️ Safety Status")
+
+    safety_status = safety_result.get(
+        "status",
+        "safe_to_continue",
+    )
+
+    if safety_status == "professional_review_recommended":
+
+        st.warning(
+            "👩‍⚕️ Professional review is recommended for "
+            "condition-specific dietary advice."
+        )
+
+    elif safety_status == "continue_with_caution":
+
+        st.warning(
+            "⚠️ Continue with caution and seek professional "
+            "advice where appropriate."
+        )
+
+    else:
+
+        st.success(
+            "✅ Dietary preferences and safety information "
+            "have been considered."
+        )
+
+    # --------------------------------------------------------
+    # AI ASSESSMENT
+    # --------------------------------------------------------
+
+    with st.expander(
+        "🧠 View AI Assessment",
+        expanded=True,
+    ):
+
+        st.write(
+            assessment.get(
+                "profile_summary",
+                "No assessment summary available.",
+            )
+        )
+
+        planning_considerations = assessment.get(
+            "planning_considerations",
+            [],
+        )
+
+        if planning_considerations:
+
+            st.markdown(
+                "**Planning Considerations**"
+            )
+
+            display_list_items(
+                planning_considerations
+            )
+
+    # --------------------------------------------------------
+    # ALLERGIES AND RESTRICTIONS
+    # --------------------------------------------------------
+
+    allergy_restrictions = safety_result.get(
+        "allergy_restrictions",
+        [],
+    )
+
+    foods_to_avoid = safety_result.get(
+        "foods_to_avoid",
+        [],
+    )
+
+    safety_flags = safety_result.get(
+        "safety_flags",
+        [],
+    )
+
+    if (
+        allergy_restrictions
+        or foods_to_avoid
+        or safety_flags
+    ):
+
+        st.subheader("🚫 Dietary Restrictions")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+
+            with st.expander(
+                "🚫 Allergies",
+                expanded=True,
+            ):
+
+                display_list_items(
+                    allergy_restrictions,
+                    empty_message="No allergies reported.",
+                )
+
+            with st.expander(
+                "🥗 Foods to Avoid",
+                expanded=True,
+            ):
+
+                display_list_items(
+                    foods_to_avoid,
+                    empty_message="No foods to avoid reported.",
+                )
+
+        with col2:
+
+            with st.expander(
+                "⚠️ Safety Considerations",
+                expanded=True,
+            ):
+
+                display_list_items(
+                    safety_flags,
+                    empty_message="No additional safety flags.",
+                )
+
+    # --------------------------------------------------------
+    # MEAL IDEAS
+    # --------------------------------------------------------
+
+    st.divider()
+
+    st.subheader("🍽️ Meal Ideas")
+
+    breakfast_ideas = guidance.get(
+        "breakfast_ideas",
+        [],
+    )
+
+    lunch_ideas = guidance.get(
+        "lunch_ideas",
+        [],
+    )
+
+    snack_ideas = guidance.get(
+        "snack_ideas",
+        [],
+    )
+
+    dinner_ideas = guidance.get(
+        "dinner_ideas",
+        [],
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        st.markdown("### 🍳 Breakfast")
+
+        display_list_items(
+            breakfast_ideas,
+            card_style=True,
+        )
+
+    with col2:
+
+        st.markdown("### 🥗 Lunch")
+
+        display_list_items(
+            lunch_ideas,
+            card_style=True,
+        )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        st.markdown("### 🍎 Snacks")
+
+        display_list_items(
+            snack_ideas,
+            card_style=True,
+        )
+
+    with col2:
+
+        st.markdown("### 🍽️ Dinner")
+
+        display_list_items(
+            dinner_ideas,
+            card_style=True,
+        )
+
+    # --------------------------------------------------------
+    # NUTRITION TIPS
+    # --------------------------------------------------------
+
+    st.divider()
+
+    st.subheader("💡 General Nutrition Tips")
+
+    display_list_items(
+        guidance.get(
+            "nutrition_tips",
+            [],
+        )
+    )
+
+    # --------------------------------------------------------
+    # IMPORTANT SAFETY MESSAGE
+    # --------------------------------------------------------
+
+    st.divider()
+
+    st.info(
+        guidance.get(
+            "important_safety_note",
+            "These suggestions are general nutrition guidance.",
+        )
+    )
+
+    st.info(
+        "🥗 For medical conditions or personalised dietary "
+        "treatment, consult a qualified healthcare professional "
+        "or registered dietitian."
+    )
+
+    # --------------------------------------------------------
+    # DOWNLOAD REPORT
+    # --------------------------------------------------------
+
+    st.divider()
+
+    st.subheader("📥 Your Report")
+
+    st.write(
+        "Download your current nutrition assessment and "
+        "AI-generated guidance as a PDF."
+    )
+
+    try:
+
+        pdf_data = create_pdf_report(
+            user_data,
+            assessment,
+            safety_result,
+            guidance,
+        )
+
+        st.download_button(
+            label="📥 Download Nutrition Report",
+            data=pdf_data,
+            file_name="NutriGuide_AI_Report.pdf",
+            mime="application/pdf",
+            type="primary",
+            use_container_width=True,
+        )
+
+    except Exception:
+
+        st.error(
+            "⚠️ The PDF report could not be generated. "
+            "Please try again."
+        )
+
+    # --------------------------------------------------------
+    # ACTION BUTTONS
+    # --------------------------------------------------------
+
+    st.divider()
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        if st.button(
+            "🔄 Create New Assessment",
+            type="primary",
+            use_container_width=True,
+        ):
+
+            reset_app()
+
+            st.session_state.page = "assessment"
+
+            st.rerun()
+
+    with col2:
+
+        if st.button(
+            "🏠 Back to Home",
+            use_container_width=True,
+        ):
+
+            reset_app()
+
+            st.session_state.page = "home"
+
+            st.rerun()
+
+    st.markdown(
+        """
+        <div class="app-footer">
+            NutriGuide AI • General educational nutrition guidance
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
     # --------------------------------------------------------
