@@ -1,6 +1,6 @@
 streamlit
 python-dotenv
+groq
 reportlab
 streamlit-lottie
-groq
 requests
